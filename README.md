@@ -10,3 +10,9 @@ A ver si así me oriento en mi colonia adoptiva.
 ```shell
 rake process[geoJSON] | jq '.features[] | .properties.name'
 ```
+
+## Longitud total
+
+```shell
+jq ' [.[] | .length] | add ' ./tmp/streets.json
+```

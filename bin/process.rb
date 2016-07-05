@@ -33,6 +33,7 @@ task :process, [:geoJSON] => :source do |t, args|
     name: '',
     geo: [],
     crosses: [],
+    length: 0.0,
     nodes: []
   }}
 
@@ -44,10 +45,9 @@ task :process, [:geoJSON] => :source do |t, args|
     col
   end
 
-  # streets = {a: streets['Willoughby Avenue']}
+  coords = Hash.new {|h,k| h[k] = []}
+
   streets.map do |name, street|
-    # puts street[:nodes].map(&:inspect).join("\n")
-    # puts '------'
     while !street[:nodes].empty?
       line = street[:nodes].shift
       line = line
@@ -59,18 +59,30 @@ task :process, [:geoJSON] => :source do |t, args|
         }
         .uniq
         .sort
-      street[:geo] << line if line.count > 1
+      if line.count > 1
+        street[:geo] << line
+        street[:length] += line_distance(line)
+        line.each {|p| coords[p] << name }
+      end
     end
-
-    # puts '------'
-    # puts street[:geo].first.inspect
-    # exit
     street
-  end
+  end.map do |street|
+    nil if (street[:geo].empty? || street[:length] < 50)
 
-  streets.reject! { |k, s|
-    s[:geo].empty? || s[:geo].map(&method(:line_distance)).reduce(&:+) < 50
-  }
+    points = street[:geo].flatten
+    street[:length] = street[:length]
+    street[:crosses] = points
+      .each_slice(2)
+      .reduce([]) {|col, p|
+        col.concat(coords[p])
+      }
+      .uniq
+      .sort
+
+    street[:crosses].delete(street[:name])
+    street.delete(:nodes)
+    street
+  end.compact
 
   if args[:geoJSON]
     puts JSON.pretty_generate({
@@ -92,6 +104,10 @@ task :process, [:geoJSON] => :source do |t, args|
       }
     })
     exit
+  end
+
+  File.open("#{ENV['cwd']}/tmp/streets.json", 'w') do |f|
+    f << JSON.pretty_generate(streets)
   end
 
 end
