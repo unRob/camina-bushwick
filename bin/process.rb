@@ -2,8 +2,25 @@ require_relative 'lib/chain'
 require_relative 'lib/polygon'
 require_relative 'lib/distance'
 
+def to_geoJSON features, style={}
+  {
+    type: 'FeatureCollection',
+    features: features.map do |feature|
+      {
+        type: 'Feature',
+        geometry: {
+          type: 'MultiLineString',
+          coordinates: feature.delete(:geo)
+        },
+        properties: feature.merge(style)
+      }
+    end
+  }
+end
+
+
 desc 'Process downloaded information into streets'
-task :process, [:geoJSON] => :source do |t, args|
+task :process, [:print] => :source do |t, args|
   require 'json'
   ALLOWED = %w{primary residential secondary service}
 
@@ -47,7 +64,7 @@ task :process, [:geoJSON] => :source do |t, args|
 
   coords = Hash.new {|h,k| h[k] = []}
 
-  streets.map do |name, street|
+  streets = streets.map do |name, street|
     while !street[:nodes].empty?
       line = street[:nodes].shift
       line = line
@@ -66,9 +83,16 @@ task :process, [:geoJSON] => :source do |t, args|
       end
     end
     street
-  end.map do |street|
-    nil if (street[:geo].empty? || street[:length] < 50)
-
+  end
+  .reject! do |street|
+    if street[:geo].empty? || street[:length] < 40
+      street[:geo].flatten.each_slice(2) {|p|
+        coords[p].delete(street[:name])
+      }
+      true
+    end
+  end
+  .map do |street|
     points = street[:geo].flatten
     street[:length] = street[:length]
     street[:crosses] = points
@@ -82,32 +106,24 @@ task :process, [:geoJSON] => :source do |t, args|
     street[:crosses].delete(street[:name])
     street.delete(:nodes)
     street
-  end.compact
+  end.sort do |a, b|
+    a[:name] <=> b[:name]
+  end.each_with_index.map do |street, index|
+    street[:id] = index + 1
+    street
+  end
 
-  if args[:geoJSON]
-    puts JSON.pretty_generate({
-      type: 'FeatureCollection',
-      features: streets.map {|name, data|
-        {
-          type: 'Feature',
-          properties: {
-            name: name,
-            stroke: "#d42155",
-            'stroke-width' => 5,
-            'stroke-opacity' => 0.5,
-          },
-          geometry: {
-            type: 'MultiLineString',
-            coordinates: data[:geo]
-          }
-        }
-      }
-    })
+  if args[:print]
+    puts JSON.pretty_generate(to_geoJSON(streets, {
+      stroke: "#d42155",
+      'stroke-width' => 5,
+      'stroke-opacity' => 0.5,
+    }))
     exit
   end
 
-  File.open("#{ENV['cwd']}/tmp/streets.json", 'w') do |f|
-    f << JSON.pretty_generate(streets)
+  File.open("#{ENV['cwd']}/tmp/streets.geojson", 'w') do |f|
+    f << JSON.pretty_generate(to_geoJSON streets)
   end
 
 end
