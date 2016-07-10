@@ -1,2 +1,4 @@
 tmp/cache.json
 tmp/streets.geojson
+.env
+tmp/maps/*.png
